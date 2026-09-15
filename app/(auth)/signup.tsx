@@ -6,10 +6,12 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeIn, FadeInUp, FadeOut } from 'react-native-reanimated';
+import { useApp } from '@/context/AppContext';
 
 export default function SignupScreen() {
   const router = useRouter();
   const { isReady, user } = usePrivy();
+  const { login } = useApp();
   const authenticated = !!user;
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -17,17 +19,43 @@ export default function SignupScreen() {
   const [loading, setLoading] = useState(false);
   const [isCodeSent, setIsCodeSent] = useState(false);
 
+  const handlePrivyError = (error: any) => {
+    const msg = error?.message || '';
+    const isAppIdMismatch = msg.toLowerCase().includes('host.exp.exponent') || 
+                            msg.toLowerCase().includes('allowed app identifier') ||
+                            msg.toLowerCase().includes('app id');
+
+    if (isAppIdMismatch) {
+      Alert.alert(
+        'Expo Go Sandbox Notice',
+        'Privy detected Expo Go (host.exp.exponent).\n\nTo whitelist it in Privy Dashboard: Add "host.exp.exponent" under Allowed App Identifiers.\n\nContinue in Dev Mode with a 90-day session?',
+        [
+          { text: 'Privy Setup Help', style: 'cancel' },
+          { 
+            text: 'Continue in Dev Mode', 
+            onPress: () => {
+              const cleanName = fullName.trim() || email.split('@')[0];
+              login(cleanName, email);
+              router.replace('/(tabs)');
+            }
+          }
+        ]
+      );
+    } else {
+      Alert.alert('Auth Notice', msg);
+    }
+  };
+
   const { sendCode, loginWithCode } = useLoginWithEmail({
     onSendCodeSuccess: () => {
       setIsCodeSent(true);
       setLoading(false);
     },
     onLoginSuccess: (user) => {
-      // Post-signup logic (like saving fullName to Supabase) would go here
       setLoading(false);
     },
     onError: (error) => {
-      Alert.alert('Auth Error', error.message);
+      handlePrivyError(error);
       setLoading(false);
     }
   });
@@ -63,7 +91,7 @@ export default function SignupScreen() {
         await loginWithCode({ code: otp, email });
       }
     } catch (e: any) {
-      Alert.alert('Error', e.message || 'An unexpected error occurred.');
+      handlePrivyError(e);
       setLoading(false);
     }
   };

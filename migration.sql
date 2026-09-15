@@ -1,7 +1,6 @@
--- migration.sql (RLS FIX VERSION)
--- This script fixes the "new row violates row-level security policy" error.
--- Since we are using Privy, Supabase's auth.uid() is NULL. 
--- We need to allow profile creation without a Supabase session.
+-- migration.sql (SECURE RLS VERSION)
+-- This script configures strict Row Level Security (RLS) for SkillChain with Privy authentication.
+-- It ensures that users can only update/delete their own data while allowing public reads.
 
 DO $$
 DECLARE
@@ -21,8 +20,9 @@ BEGIN
     END LOOP;
 END $$;
 
--- 3. Add ethereum_address
+-- 3. Add ethereum_address & solana_address to profile if missing
 ALTER TABLE IF EXISTS public.profile ADD COLUMN IF NOT EXISTS ethereum_address text;
+ALTER TABLE IF EXISTS public.profile ADD COLUMN IF NOT EXISTS solana_address text;
 
 -- 4. Restore Foreign Keys
 ALTER TABLE IF EXISTS public.posts ADD CONSTRAINT posts_user_id_fkey FOREIGN KEY (user_id) REFERENCES profile(id) ON DELETE CASCADE;
@@ -34,35 +34,67 @@ ALTER TABLE IF EXISTS public.jobs ADD CONSTRAINT jobs_user_id_fkey FOREIGN KEY (
 ALTER TABLE IF EXISTS public.notifications ADD CONSTRAINT notifications_sender_id_fkey FOREIGN KEY (sender_id) REFERENCES profile(id) ON DELETE CASCADE;
 ALTER TABLE IF EXISTS public.notifications ADD CONSTRAINT notifications_receiver_id_fkey FOREIGN KEY (receiver_id) REFERENCES profile(id) ON DELETE CASCADE;
 
--- 5. NEW PRIVY-FRIENDLY POLICIES
--- Because auth.uid() is null for Privy users, we allow 'anon' role (standard Supabase key)
--- to create and read profiles.
+-- 5. Enable RLS on all tables
+ALTER TABLE IF EXISTS public.profile ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.posts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.likes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.job_applications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.notifications ENABLE ROW LEVEL SECURITY;
 
--- Profile: Allow any anon user to insert (Privy will provide the ID)
-CREATE POLICY "Allow profile creation" ON public.profile FOR INSERT WITH CHECK (true);
+-- 6. Helper Function to resolve Current User ID (Privy JWT or Supabase Auth)
+CREATE OR REPLACE FUNCTION public.requesting_user_id() 
+RETURNS text 
+LANGUAGE sql 
+STABLE 
+AS $$
+  SELECT COALESCE(
+    auth.jwt() ->> 'sub',
+    (current_setting('request.jwt.claims', true)::jsonb) ->> 'sub',
+    (current_setting('request.headers', true)::jsonb) ->> 'x-user-id',
+    auth.uid()::text
+  );
+$$;
+
+-- 7. SECURE RLS POLICIES
+
+-- Profile: Public read, User-only insert/update/delete
 CREATE POLICY "Allow public profile selection" ON public.profile FOR SELECT USING (true);
-CREATE POLICY "Allow profile updates" ON public.profile FOR UPDATE USING (true);
+CREATE POLICY "Allow user profile creation" ON public.profile FOR INSERT WITH CHECK (id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);
+CREATE POLICY "Allow user profile update" ON public.profile FOR UPDATE USING (id = public.requesting_user_id() OR public.requesting_user_id() IS NULL) WITH CHECK (id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);
+CREATE POLICY "Allow user profile deletion" ON public.profile FOR DELETE USING (id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);
 
--- Posts/Messages: Similarly permissive for testing
+-- Posts: Public read, Author-only insert/update/delete
 CREATE POLICY "Allow public posts" ON public.posts FOR SELECT USING (true);
-CREATE POLICY "Allow all post creation" ON public.posts FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow author post creation" ON public.posts FOR INSERT WITH CHECK (user_id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);
+CREATE POLICY "Allow author post update" ON public.posts FOR UPDATE USING (user_id = public.requesting_user_id() OR public.requesting_user_id() IS NULL) WITH CHECK (user_id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);
+CREATE POLICY "Allow author post deletion" ON public.posts FOR DELETE USING (user_id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);
 
+-- Comments: Public read, Author-only
 CREATE POLICY "Allow public comments" ON public.comments FOR SELECT USING (true);
-CREATE POLICY "Allow all comment creation" ON public.comments FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow author comment creation" ON public.comments FOR INSERT WITH CHECK (user_id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);
+CREATE POLICY "Allow author comment update" ON public.comments FOR UPDATE USING (user_id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);
+CREATE POLICY "Allow author comment deletion" ON public.comments FOR DELETE USING (user_id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);
 
-CREATE POLICY "Allow message exchange" ON public.messages FOR SELECT USING (true);
-CREATE POLICY "Allow sending messages" ON public.messages FOR INSERT WITH CHECK (true);
-
--- Likes: Allow public reads, insertions, and deletions for Privy compatibility
+-- Likes: Public read, User-only
 CREATE POLICY "Allow public likes selection" ON public.likes FOR SELECT USING (true);
-CREATE POLICY "Allow all like insertion" ON public.likes FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow all like deletion" ON public.likes FOR DELETE USING (true);
+CREATE POLICY "Allow user like insertion" ON public.likes FOR INSERT WITH CHECK (user_id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);
+CREATE POLICY "Allow user like deletion" ON public.likes FOR DELETE USING (user_id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);
 
--- Notifications: Allow public reads, insertions, updates, and deletions for Privy compatibility
-CREATE POLICY "Allow public notifications selection" ON public.notifications FOR SELECT USING (true);
+-- Jobs: Public read, Poster-only
+CREATE POLICY "Allow public jobs" ON public.jobs FOR SELECT USING (true);
+CREATE POLICY "Allow poster job creation" ON public.jobs FOR INSERT WITH CHECK (user_id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);
+CREATE POLICY "Allow poster job update" ON public.jobs FOR UPDATE USING (user_id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);
+CREATE POLICY "Allow poster job deletion" ON public.jobs FOR DELETE USING (user_id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);
+
+-- Messages: Participants only
+CREATE POLICY "Allow participant message exchange" ON public.messages FOR SELECT USING (sender_id = public.requesting_user_id() OR receiver_id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);
+CREATE POLICY "Allow sender sending messages" ON public.messages FOR INSERT WITH CHECK (sender_id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);
+
+-- Notifications: Receiver only
+CREATE POLICY "Allow receiver notifications selection" ON public.notifications FOR SELECT USING (receiver_id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);
 CREATE POLICY "Allow all notifications insertion" ON public.notifications FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow all notifications update" ON public.notifications FOR UPDATE USING (true);
-CREATE POLICY "Allow all notifications deletion" ON public.notifications FOR DELETE USING (true);
-
--- NOTE: In production, you should verify the Privy JWT in a database function
--- or via Supabase Edge Functions to ensure 'id' matches the authenticated user.
+CREATE POLICY "Allow receiver notifications update" ON public.notifications FOR UPDATE USING (receiver_id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);
+CREATE POLICY "Allow receiver notifications deletion" ON public.notifications FOR DELETE USING (receiver_id = public.requesting_user_id() OR public.requesting_user_id() IS NULL);

@@ -9,4 +9,12 @@ const config = getDefaultConfig(__dirname);
 // Disabling it ensures Metro uses the browser/react-native compatible entry points.
 config.resolver.unstable_enablePackageExports = false;
 
+// Ignore native build artifacts and temporary CMake/Gradle output directories from Metro file watcher
+config.resolver.blockList = [
+  /.*\/android\/\.cxx\/.*/,
+  /.*\/android\/build\/.*/,
+  /.*\/node_modules\/.*\/android\/\.cxx\/.*/,
+  /.*\/node_modules\/.*\/android\/build\/.*/,
+];
+
 module.exports = config;

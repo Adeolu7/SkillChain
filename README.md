@@ -126,7 +126,7 @@ SkillChain/
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/Ukpatu-Mimin/SkillChain.git
+git clone https://github.com/Adeolu7/SkillChain.git
 cd SkillChain
 ```
 

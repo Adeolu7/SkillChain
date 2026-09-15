@@ -2,7 +2,7 @@ import { supabase } from '@/constants/Supabase';
 import { Theme } from '@/constants/Theme';
 import { FontAwesome5, Ionicons } from '@expo/vector-icons';
 import { usePrivy, useEmbeddedEthereumWallet, useEmbeddedSolanaWallet } from '@privy-io/expo';
-import { transact } from '@solana-mobile/mobile-wallet-adapter-protocol';
+import { safeTransact } from '@/constants/SolanaMWA';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -157,7 +157,7 @@ export default function WalletSettingsScreen() {
 
     setTransferring(true);
     try {
-      await transact(async (wallet) => {
+      await safeTransact(async (wallet) => {
         const authResult = await wallet.authorize({
           cluster: 'mainnet-beta',
           identity: APP_IDENTITY,
@@ -233,7 +233,7 @@ export default function WalletSettingsScreen() {
 
     setLoading(true);
     try {
-      const result = await transact(async (wallet) => {
+      const result = await safeTransact(async (wallet) => {
         console.log('[WalletSettings] Requesting authorization from mobile wallet...');
         return await wallet.authorize({
           cluster: 'mainnet-beta',

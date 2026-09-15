@@ -2,7 +2,7 @@ import { supabase } from '@/constants/Supabase';
 import { Theme } from '@/constants/Theme';
 import { FontAwesome5, Ionicons } from '@expo/vector-icons';
 import { usePrivy } from '@privy-io/expo';
-import { transact } from '@solana-mobile/mobile-wallet-adapter-protocol';
+import { safeTransact } from '@/constants/SolanaMWA';
 import {
     createTransferInstruction,
     getAssociatedTokenAddress,
@@ -366,7 +366,7 @@ export default function ChatDetailScreen() {
         params: { transaction: base64Transaction, connection }
       }) as string;
     } else {
-      return await transact(async (wallet) => {
+      return await safeTransact(async (wallet) => {
         await wallet.authorize({ cluster: 'mainnet-beta', identity: APP_IDENTITY });
         const { blockhash } = await connection.getLatestBlockhash();
         transaction.recentBlockhash = blockhash;

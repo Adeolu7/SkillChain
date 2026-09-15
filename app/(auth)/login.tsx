@@ -6,15 +6,45 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeIn, FadeInUp, FadeOut } from 'react-native-reanimated';
+import { useApp } from '@/context/AppContext';
 
 export default function LoginScreen() {
   const router = useRouter();
   const { isReady, user } = usePrivy();
+  const { login } = useApp();
   const authenticated = !!user;
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
   const [isCodeSent, setIsCodeSent] = useState(false);
+
+  const handlePrivyError = (error: any) => {
+    const msg = error?.message || '';
+    const isAppIdMismatch = msg.toLowerCase().includes('host.exp.exponent') || 
+                            msg.toLowerCase().includes('allowed app identifier') ||
+                            msg.toLowerCase().includes('app id');
+
+    if (isAppIdMismatch) {
+      Alert.alert(
+        'Expo Go Sandbox Detected',
+        'In Expo Go, the app identifier is "host.exp.exponent".\n\nTo whitelist it for production: Add "host.exp.exponent" to Allowed App Identifiers in your Privy Dashboard.\n\nWould you like to continue in Dev Access Mode (90-day session)?',
+        [
+          { text: 'Privy Setup Help', style: 'cancel' },
+          { 
+            text: 'Continue in Dev Mode', 
+            onPress: () => {
+              const cleanEmail = email.trim() || 'developer@skillchain.app';
+              const cleanUsername = cleanEmail.split('@')[0];
+              login(cleanUsername, cleanEmail);
+              router.replace('/(tabs)');
+            }
+          }
+        ]
+      );
+    } else {
+      Alert.alert('Authentication Notice', msg);
+    }
+  };
 
   const { sendCode, loginWithCode } = useLoginWithEmail({
     onSendCodeSuccess: () => {
@@ -26,7 +56,7 @@ export default function LoginScreen() {
       // layout listener handles redirection
     },
     onError: (error) => {
-      Alert.alert('Authentication Error', error.message);
+      handlePrivyError(error);
       setLoading(false);
     }
   });
@@ -39,7 +69,7 @@ export default function LoginScreen() {
       if (error.message.includes('not allowed')) {
         Alert.alert('Configuration Required', 'Google Login must be enabled in the Privy Dashboard.');
       } else {
-        Alert.alert('Login Error', error.message);
+        handlePrivyError(error);
       }
     }
   });
@@ -50,7 +80,7 @@ export default function LoginScreen() {
       <View style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={Theme.colors.primary} />
-          <Text style={styles.loadingText}>Restoring your session...</Text>
+          <Text style={styles.loadingText}>Restoring your 90-day session...</Text>
         </View>
       </View>
     );
@@ -75,7 +105,7 @@ export default function LoginScreen() {
         await loginWithCode({ code: otp, email });
       }
     } catch (e: any) {
-      Alert.alert('Error', e.message || 'Something went wrong. Please try again.');
+      handlePrivyError(e);
       setLoading(false);
     }
   };
@@ -157,13 +187,27 @@ export default function LoginScreen() {
                   <Ionicons name="logo-google" size={20} color="#1F2937" />
                   <Text style={styles.googleButtonText}>Continue with Google</Text>
                 </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={styles.demoButton}
+                  onPress={() => {
+                    const cleanEmail = email.trim() || 'builder@skillchain.app';
+                    const cleanUsername = cleanEmail.split('@')[0];
+                    login(cleanUsername, cleanEmail);
+                    router.replace('/(tabs)');
+                  }}
+                  disabled={loading}
+                >
+                  <Ionicons name="flash-outline" size={18} color="#2554EB" />
+                  <Text style={styles.demoButtonText}>Fast Demo Access (90-Day Token)</Text>
+                </TouchableOpacity>
               </>
             )}
           </View>
 
           <View style={styles.footer}>
             <Text style={styles.footerText}>
-              Securely powered by <Text style={styles.privyText}>Privy</Text>
+              Decentralized Identity on <Text style={styles.privyText}>SkillChain</Text>
             </Text>
             <View style={styles.termsRow}>
               <TouchableOpacity><Text style={styles.termsText}>Terms</Text></TouchableOpacity>
@@ -315,6 +359,24 @@ const styles = StyleSheet.create({
     color: '#1F2937',
     fontSize: 16,
     fontWeight: '600',
+  },
+  demoButton: {
+    width: '100%',
+    flexDirection: 'row',
+    borderWidth: 1.5,
+    borderColor: '#DBEAFE',
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: '#EFF6FF',
+    marginTop: 12,
+  },
+  demoButtonText: {
+    color: '#2554EB',
+    fontSize: 15,
+    fontWeight: '700',
   },
   footer: {
     marginTop: 'auto',
